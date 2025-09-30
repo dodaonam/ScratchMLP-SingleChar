@@ -1,7 +1,8 @@
 import numpy as np
+import os
 from torchvision import datasets, transforms
 
-def load_emnist_balanced(validation_split=0.1):
+def load_emnist_balanced(validation_split):
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.13,), (0.30,))])
     train_dataset = datasets.EMNIST(root='./data', split='balanced', train=True, download=True, transform=transform)
     test_dataset = datasets.EMNIST(root='./data', split='balanced', train=False, download=True, transform=transform)
@@ -33,7 +34,8 @@ def load_emnist_balanced(validation_split=0.1):
     Y_train = np.eye(num_classes)[y_train].T
     Y_val = np.eye(num_classes)[y_val].T
     Y_test = np.eye(num_classes)[y_test].T
-    
+
+    os.makedirs("data/processed", exist_ok=True)
     np.save('data/processed/train_X.npy', X_train)
     np.save('data/processed/train_y.npy', Y_train)
     np.save('data/processed/val_X.npy', X_val)
@@ -43,12 +45,16 @@ def load_emnist_balanced(validation_split=0.1):
     
     return X_train, Y_train, X_val, Y_val, X_test, Y_test
 
-def load_processed_data():
-    X_train = np.load('data/processed/train_X.npy')
-    Y_train = np.load('data/processed/train_y.npy')
-    X_val = np.load('data/processed/val_X.npy')
-    Y_val = np.load('data/processed/val_y.npy')
-    X_test = np.load('data/processed/test_X.npy')
-    Y_test = np.load('data/processed/test_y.npy')
-
-    return X_train, Y_train, X_val, Y_val, X_test, Y_test
+def load_processed_data(validation_split=0.1):
+    try:
+        X_train = np.load('data/processed/train_X.npy')
+        Y_train = np.load('data/processed/train_y.npy')
+        X_val = np.load('data/processed/val_X.npy')
+        Y_val = np.load('data/processed/val_y.npy')
+        X_test = np.load('data/processed/test_X.npy')
+        Y_test = np.load('data/processed/test_y.npy')
+        
+        return X_train, Y_train, X_val, Y_val, X_test, Y_test
+    
+    except (FileNotFoundError, OSError):
+        return load_emnist_balanced(validation_split)
