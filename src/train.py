@@ -1,13 +1,14 @@
 import numpy as np
+import os
 from model import MLP
-from load_data import load_emnist_balanced
+from load_data import load_processed_data
 
-X_train, Y_train, X_val, Y_val, X_test, Y_test = load_emnist_balanced(validation_split=0.1)
+X_train, Y_train, X_val, Y_val, X_test, Y_test = load_processed_data(validation_split=0.1)
 
 layer_dims = [784, 512, 256, 47]
 mlp = MLP(layer_dims=layer_dims, init='he', lr=0.01)
 
-def train(mlp, X_train, Y_train, X_val, Y_val, epochs=20, batch_size=64):
+def train(mlp, X_train, Y_train, X_val, Y_val, epochs=10, batch_size=64):
     m = X_train.shape[1]
     best_val_acc = 0
     best_weights = None
@@ -60,5 +61,6 @@ print(f"\nFinal Results:")
 print(f"Best Validation Accuracy: {best_val_acc:.4f}")
 print(f"Test Accuracy: {test_acc:.4f}")
 
+os.makedirs("models", exist_ok=True)
 np.savez('models/mlp_weights.npz', **mlp.parameters)
 print("Model saved to models/mlp_weights.npz")
