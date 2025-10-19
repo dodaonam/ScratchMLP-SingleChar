@@ -36,21 +36,24 @@ def load_emnist_balanced(validation_split):
     Y_test = np.eye(num_classes)[y_test].T
 
     os.makedirs("data/processed", exist_ok=True)
-    np.save('data/processed/train_X.npy', X_train)
-    np.save('data/processed/train_y.npy', Y_train)
-    np.save('data/processed/val_X.npy', X_val)
-    np.save('data/processed/val_y.npy', Y_val)
+    split_int = int(validation_split * 100)
+
+    np.save(f'data/processed/train_X_split_{split_int}%.npy', X_train)
+    np.save(f'data/processed/train_y_split_{split_int}%.npy', Y_train)
+    np.save(f'data/processed/val_X_split_{split_int}%.npy', X_val)
+    np.save(f'data/processed/val_y_split_{split_int}%.npy', Y_val)
     np.save('data/processed/test_X.npy', X_test)
     np.save('data/processed/test_y.npy', Y_test)
     
     return X_train, Y_train, X_val, Y_val, X_test, Y_test
 
 def load_processed_data(validation_split=0.1):
+    split_int = int(validation_split * 100)
     try:
-        X_train = np.load('data/processed/train_X.npy')
-        Y_train = np.load('data/processed/train_y.npy')
-        X_val = np.load('data/processed/val_X.npy')
-        Y_val = np.load('data/processed/val_y.npy')
+        X_train = np.load(f'data/processed/train_X_split_{split_int}%.npy')
+        Y_train = np.load(f'data/processed/train_y_split_{split_int}%.npy')
+        X_val = np.load(f'data/processed/val_X_split_{split_int}%.npy')
+        Y_val = np.load(f'data/processed/val_y_split_{split_int}%.npy')
         X_test = np.load('data/processed/test_X.npy')
         Y_test = np.load('data/processed/test_y.npy')
         

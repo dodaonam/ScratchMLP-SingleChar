@@ -1,7 +1,8 @@
 import numpy as np
 
 class MLP:
-    def __init__(self, layer_dims, init='he', lr=1e-2, lambd=0.0, keep_prob=1.0, use_batchnorm=False, momentum=0.9):
+    def __init__(self, layer_dims, init='he', lr=1e-2, lambd=0.0, keep_prob=1.0, use_batchnorm=False, momentum=0.9, 
+                 optimizer='sgd', beta1=0.9, beta2=0.999, epsilon=1e-8):
         self.layer_dims = layer_dims
         self.init = init
         self.lr = lr
@@ -9,22 +10,33 @@ class MLP:
         self.keep_prob = keep_prob
         self.use_batchnorm = use_batchnorm
         self.momentum = momentum
+        self.optimizer = optimizer
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.t = 0
+        self.v = {}
+        self.s = {}
+
         self.parameters = self.initialize_parameters(layer_dims, init)
 
         if self.use_batchnorm:
             self.bn_params = self.initialize_bn_parameters(layer_dims)
 
+        if self.optimizer == 'adam':
+            self.v, self.s = self.initialize_adam()
+
     def initialize_parameters(self, layer_dims, init='he'):
-        params = {}
+        parameters = {}
         for l in range(1, len(layer_dims)):
             n_in = layer_dims[l-1]
             n_out = layer_dims[l]
             if init == 'he':    
-                params[f'W{l}'] = np.random.randn(n_out, n_in) * np.sqrt(2.0/n_in)
+                parameters[f'W{l}'] = np.random.randn(n_out, n_in) * np.sqrt(2.0/n_in)
             else:
-                params[f'W{l}'] = np.random.randn(n_out, n_in) * 0.01
-            params[f'b{l}'] = np.zeros((n_out, 1))
-        return params
+                parameters[f'W{l}'] = np.random.randn(n_out, n_in) * 0.01
+            parameters[f'b{l}'] = np.zeros((n_out, 1))
+        return parameters
     
     def initialize_bn_parameters(self, layer_dims):
         bn_params = {}
@@ -35,13 +47,25 @@ class MLP:
             bn_params[f'running_var{l}'] = np.ones((layer_dims[l], 1))
         return bn_params
     
+    def initialize_adam(self):
+        v = {}
+        s = {}
+        L = len(self.parameters) // 2
+        for l in range(1, L+1):
+            v[f'dW{l}'] = np.zeros(self.parameters[f'W{l}'].shape)
+            v[f'db{l}'] = np.zeros(self.parameters[f'b{l}'].shape)
+            s[f'dW{l}'] = np.zeros(self.parameters[f'W{l}'].shape)
+            s[f'db{l}'] = np.zeros(self.parameters[f'b{l}'].shape)
+        return v, s
+    
     @staticmethod
     def relu(Z):
         return np.maximum(0, Z)
     
     @staticmethod
     def softmax(Z):
-        return np.exp(Z) / np.sum(np.exp(Z), axis=0, keepdims=True)
+        Z_shifted = Z - np.max(Z, axis=0, keepdims=True)
+        return np.exp(Z_shifted ) / np.sum(np.exp(Z_shifted ), axis=0, keepdims=True)
     
     def forward(self, X, is_training):
         caches = []
@@ -76,7 +100,7 @@ class MLP:
             A_next = self.relu(Z)
 
             # dropout
-            if self.keep_prob < 1.0:
+            if self.keep_prob < 1.0 and is_training:
                 M = (np.random.rand(*A_next.shape) < self.keep_prob) / self.keep_prob
                 A_next *= M
             else:
@@ -88,7 +112,7 @@ class MLP:
         b = self.parameters[f'b{L}']
         ZL = np.dot(W, A) + b
         AL = self.softmax(ZL)
-        caches.append({'A_prev': A, 'W': W, 'b': b, 'Z': ZL, 'M': None})
+        caches.append({'A_prev': A, 'W': W, 'b': b, 'Z': ZL, 'M': None, 'bn_cache': None})
 
         return AL, caches
     
@@ -157,10 +181,31 @@ class MLP:
     def update_parameters(self, grads):
         L = len(self.parameters) // 2
         
-        for l in range(1, L+1):
-            self.parameters[f'W{l}'] -= self.lr * grads[f'dW{l}']
-            self.parameters[f'b{l}'] -= self.lr * grads[f'db{l}']
-            
+        if self.optimizer == 'sgd':
+            for l in range(1, L+1):
+                self.parameters[f'W{l}'] -= self.lr * grads[f'dW{l}']
+                self.parameters[f'b{l}'] -= self.lr * grads[f'db{l}']
+
+        elif self.optimizer == 'adam':
+            self.t += 1
+            v_corrected = {}
+            s_corrected = {}
+
+            for l in range(1, L+1):
+                self.v[f"dW{l}"] = self.beta1 * self.v[f"dW{l}"] + (1 - self.beta1) * grads[f"dW{l}"]
+                self.v[f"db{l}"] = self.beta1 * self.v[f"db{l}"] + (1 - self.beta1) * grads[f"db{l}"]
+                
+                self.s[f"dW{l}"] = self.beta2 * self.s[f"dW{l}"] + (1 - self.beta2) * np.square(grads[f"dW{l}"])
+                self.s[f"db{l}"] = self.beta2 * self.s[f"db{l}"] + (1 - self.beta2) * np.square(grads[f"db{l}"])
+                
+                v_corrected[f"dW{l}"] = self.v[f"dW{l}"] / (1 - self.beta1**self.t)
+                v_corrected[f"db{l}"] = self.v[f"db{l}"] / (1 - self.beta1**self.t)
+                s_corrected[f"dW{l}"] = self.s[f"dW{l}"] / (1 - self.beta2**self.t)
+                s_corrected[f"db{l}"] = self.s[f"db{l}"] / (1 - self.beta2**self.t)
+
+                self.parameters[f"W{l}"] -= self.lr * v_corrected[f"dW{l}"] / (np.sqrt(s_corrected[f"dW{l}"]) + self.epsilon)
+                self.parameters[f"b{l}"] -= self.lr * v_corrected[f"db{l}"] / (np.sqrt(s_corrected[f"db{l}"]) + self.epsilon)
+
         if self.use_batchnorm:
             for l in range(1, L):
                 if f'dgamma{l}' in grads:

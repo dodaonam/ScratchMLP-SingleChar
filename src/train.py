@@ -8,14 +8,16 @@ EPOCHS = 60
 BATCH_SIZE = 64
 PATIENCE = 5
 VALIDATION_SPLIT = 0.1
-LAYER_DIMS = [784, 256, 128, 47]
-LEARNING_RATE = 0.01
-LAMBDA = 0.001
+LAYER_DIMS = [784, 512, 256, 47]
+LEARNING_RATE = 0.001
+LEARNING_RATE_DECAY = 0.95
+LAMBDA = 0.005
 KEEP_PROB = 0.5
 USE_BATCHNORM = True
 MOMENTUM = 0.9
+OPTIMIZER = 'adam'
 
-def train(mlp, X_train, Y_train, X_val, Y_val, epochs, batch_size, patience):
+def train(mlp, X_train, Y_train, X_val, Y_val, epochs, batch_size, patience, lr, decay_rate):
     m = X_train.shape[1]
     best_val_loss = float('inf')
     best_weights = None
@@ -29,6 +31,7 @@ def train(mlp, X_train, Y_train, X_val, Y_val, epochs, batch_size, patience):
     
     wait = 0
     for epoch in range(epochs):
+        mlp.lr = lr * (decay_rate ** epoch)
         mlp.keep_prob = KEEP_PROB
         perm = np.random.permutation(m)
         X_train = X_train[:, perm]
@@ -61,7 +64,7 @@ def train(mlp, X_train, Y_train, X_val, Y_val, epochs, batch_size, patience):
         history['val_acc'].append(val_acc)
         history['val_loss'].append(val_loss)
         
-        print(f"epoch {epoch+1}/{epochs}: train_acc: {train_acc:.4f}, train_loss: {train_loss:.4f} - val_acc: {val_acc:.4f}, val_loss: {val_loss:.4f}")
+        print(f"epoch {epoch+1}/{epochs}: train_acc: {train_acc:.4f}, train_loss: {train_loss:.4f} - val_acc: {val_acc:.4f}, val_loss: {val_loss:.4f} - lr: {mlp.lr:.6f}")
         
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -119,9 +122,11 @@ def plot_training_history(history):
 
 if __name__ == "__main__":
     X_train, Y_train, X_val, Y_val, X_test, Y_test = load_processed_data(validation_split=VALIDATION_SPLIT)
-    mlp = MLP(layer_dims=LAYER_DIMS, init='he', lr=LEARNING_RATE, lambd=LAMBDA, keep_prob=KEEP_PROB, momentum=MOMENTUM)
+    mlp = MLP(layer_dims=LAYER_DIMS, init='he', lr=LEARNING_RATE, lambd=LAMBDA, 
+              keep_prob=KEEP_PROB, use_batchnorm=USE_BATCHNORM, momentum=MOMENTUM, optimizer=OPTIMIZER)
 
-    history, best_val_loss = train(mlp, X_train, Y_train, X_val, Y_val, epochs=EPOCHS, batch_size=BATCH_SIZE, patience=PATIENCE)
+    history, best_val_loss = train(mlp, X_train, Y_train, X_val, Y_val, epochs=EPOCHS, batch_size=BATCH_SIZE, 
+                                   patience=PATIENCE, lr=LEARNING_RATE, decay_rate=LEARNING_RATE_DECAY)
 
     AL_test, _ = mlp.forward(X_test, is_training=False)
     test_loss = mlp.cost(AL_test, Y_test)
