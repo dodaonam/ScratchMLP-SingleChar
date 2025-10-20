@@ -219,3 +219,6 @@ models/
 *.h5
 *.pt
 *.pth
+
+#
+*.db
