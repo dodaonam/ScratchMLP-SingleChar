@@ -12,9 +12,9 @@ class_name = [
 
 def load_model():
     try:
-        layer_dims = [784, 512, 256, 47]
+        layer_dims = [784, 384, 384, 47]
         mlp = MLP(layer_dims=layer_dims, init='he', use_batchnorm=True)
-        weights = np.load('models/mlp_weights.npz')
+        weights = np.load('models/mlp_weights_tuned.npz')
         loaded_params, loaded_bn_params = {}, {}
         for key in weights.keys():
             if key.startswith('gamma') or key.startswith('beta') or key.startswith('running_'):
