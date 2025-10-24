@@ -5,6 +5,11 @@ import matplotlib.pyplot as plt
 from src.model import MLP
 from src.load_data import load_processed_data
 
+EPOCHS = 100
+BATCH_SIZE = 128
+PATIENCE = 10
+LEARNING_RATE_DECAY = 0.98
+
 def train_best_model(mlp, X_train, Y_train, X_val, Y_val, epochs, batch_size, patience, lr, decay_rate):
     m = X_train.shape[1]
     best_val_loss = float('inf')
@@ -110,7 +115,7 @@ if __name__ == "__main__":
     try:
         study = optuna.load_study(
             study_name="mlp_hyperparam_tuning",
-            storage="sqlite:///tuning_results.db"
+            storage="postgresql+psycopg2://optuna:mypass@localhost:5432/optuna_db"
         )
         best_params = study.best_trial.params
         print(best_params)
@@ -137,11 +142,11 @@ if __name__ == "__main__":
 
     history = train_best_model(
         final_mlp, X_train, Y_train, X_val, Y_val,
-        epochs=10,
-        batch_size=128,
-        patience=2,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        patience=PATIENCE,
         lr=best_params['learning_rate'],
-        decay_rate=0.98
+        decay_rate=LEARNING_RATE_DECAY
     )
 
     AL_test, _ = final_mlp.forward(X_test, is_training=False)
