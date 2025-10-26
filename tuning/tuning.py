@@ -55,10 +55,10 @@ def train(mlp, X_train, Y_train, X_val, Y_val, epochs, batch_size, patience, lr,
         
     return val_acc_at_best_loss, best_weights, best_bn
 
-def objective(trial):
+def objective(trial, X_train, Y_train, X_val, Y_val):
     lr = trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
-    lambd = trial.suggest_float('lambda', 1e-4, 1e-1, log=True)
-    keep_prob = trial.suggest_float('keep_prob', 0.3, 0.7, step=0.1)
+    lambd = trial.suggest_float('lambda', 1e-2, 1e-1, log=True)
+    keep_prob = trial.suggest_float('keep_prob', 0.4, 0.7, step=0.1)
     n_hidden_layers = trial.suggest_int('n_hidden_layers', 1, 2)
 
     layer_dims = [784]
@@ -67,7 +67,7 @@ def objective(trial):
         layer_dims.append(n_neurons)
     layer_dims.append(47)
     
-    EPOCHS = 50
+    EPOCHS = 30
     BATCH_SIZE = 128
     PATIENCE = 5
     DECAY_RATE = 0.98
@@ -81,18 +81,41 @@ def objective(trial):
                              epochs=EPOCHS, batch_size=BATCH_SIZE, patience=PATIENCE, 
                              lr=lr, decay_rate=DECAY_RATE, trial=trial)
         if best_weights:
-            best_weights = {k: v.tolist() for k, v in best_weights.items()}
-            trial.set_user_attr("best_weights", best_weights)
-        if best_bn:
-            best_bn = {k: v.tolist() for k, v in best_bn.items()}
-            trial.set_user_attr("best_bn_params", best_bn)
+            weights_dir = "models/trial_weights"
+            os.makedirs(weights_dir, exist_ok=True)
+            weights_path = os.path.join(weights_dir, f"trial_{trial.number}_weights.npz")
+            weights_to_save = best_weights.copy()
+            if best_bn:
+                weights_to_save.update(best_bn)
+            np.savez(weights_path, **weights_to_save)
+            trial.set_user_attr("weights_path", weights_path)
+
     except TrialPruned:
         raise
+
     except Exception as e:
         print(f"Trial #{trial.number} failed with an error: {e}")
         return 0.0
 
     return best_val_acc
+
+def _worker_run(n_chunk, storage_url, study_name, X_train, Y_train, X_val, Y_val):
+
+    pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=10, interval_steps=1)
+
+    study = optuna.create_study(
+        study_name=study_name,
+        direction='maximize',
+        pruner=pruner,
+        storage=storage_url,
+        load_if_exists=True
+    )
+
+    objective_with_data = lambda trial: objective(trial, X_train, Y_train, X_val, Y_val)
+
+    study.optimize(objective_with_data, n_trials=n_chunk, n_jobs=1)
+
+    return True
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Hyperparameter tuning for MLP")
@@ -103,41 +126,28 @@ if __name__ == "__main__":
     STORAGE = "postgresql+psycopg2://optuna:mypass@localhost:5432/optuna_db?connect_timeout=30"
     STUDY_NAME = "mlp_hyperparam_tuning"
 
-    def _worker_run(n_chunk, storage_url, study_name):
-        X_tr, Y_tr, X_v, Y_v, _, _ = load_processed_data(validation_split=0.1)
-        globals()['X_train'] = X_tr
-        globals()['Y_train'] = Y_tr
-        globals()['X_val'] = X_v
-        globals()['Y_val'] = Y_v
+    pruner_for_init = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=10, interval_steps=1)
+    study_initializer = optuna.create_study(
+        study_name=STUDY_NAME,
+        storage=STORAGE,
+        direction='maximize',
+        pruner=pruner_for_init,
+        load_if_exists=True
+    )
+    del study_initializer
 
-        pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=10, interval_steps=1)
-
-        study = optuna.create_study(
-            study_name=study_name,
-            direction='maximize',
-            pruner=pruner,
-            storage=storage_url,
-            load_if_exists=True
-        )
-
-        study.optimize(objective, n_trials=n_chunk, n_jobs=1)
-
-        return True
+    X_train, Y_train, X_val, Y_val, _, _ = load_processed_data(validation_split=0.1)
 
     if args.jobs <= 1:
-        X_train, Y_train, X_val, Y_val, _, _ = load_processed_data(validation_split=0.1)
-
         pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=10, interval_steps=1)
 
-        study = optuna.create_study(
+        study = optuna.load_study(
             study_name=STUDY_NAME,
-            direction='maximize',
-            pruner=pruner,
             storage=STORAGE,
-            load_if_exists=True
         )
 
-        study.optimize(objective, n_trials=args.trials, n_jobs=1)
+        objective_with_data = lambda trial: objective(trial, X_train, Y_train, X_val, Y_val)
+        study.optimize(objective_with_data, n_trials=args.trials, n_jobs=1)
     else:
         n_total = args.trials
         n_workers = args.jobs
@@ -150,7 +160,7 @@ if __name__ == "__main__":
         print(f"Launching {len(chunks)} workers via joblib with chunks: {chunks}")
 
         with Parallel(n_jobs=len(chunks)) as parallel:
-            parallel(delayed(_worker_run)(c, STORAGE, STUDY_NAME) for c in chunks)
+            parallel(delayed(_worker_run)(c, STORAGE, STUDY_NAME, X_train, Y_train, X_val, Y_val) for c in chunks)
 
         study = optuna.load_study(study_name=STUDY_NAME, storage=STORAGE)
 
@@ -163,16 +173,13 @@ if __name__ == "__main__":
     print(f"Best Validation Accuracy: {best_trial.value:.4f}")
 
     try:
-        best_weights = best_trial.user_attrs["best_weights"]
-        weights_to_save = {k: np.array(v) for k, v in best_weights.items()}
-        if "best_bn_params" in best_trial.user_attrs:
-            best_bn = best_trial.user_attrs["best_bn_params"]
-            bn_to_save = {k: np.array(v) for k, v in best_bn.items()}
-            weights_to_save.update(bn_to_save)
+        weights_path = best_trial.user_attrs["weights_path"]
+        loaded_weights = np.load(weights_path)
+        weights_to_save = {k: loaded_weights[k] for k in loaded_weights}
 
-        os.makedirs("models", exist_ok=True)
         np.savez('models/mlp_weights_tuned.npz', **weights_to_save)
         print("Best tuned weights saved to models/mlp_weights_tuned.npz")
+
     except KeyError:
         print("Could not find saved weights in the best trial.")
     
