@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import json
 from src.model import MLP
 
 class_name = [
@@ -12,7 +13,16 @@ class_name = [
 
 def load_model():
     try:
-        layer_dims = [784, 384, 384, 47]
+        with open('models/best_params.json', 'r') as f:
+            best_params = json.load(f)
+
+        layer_dims = [784]
+        n_hidden_layers = best_params['n_hidden_layers']
+        for i in range(n_hidden_layers):
+            n_neurons = best_params[f'n_units_layer_{i}']
+            layer_dims.append(n_neurons)
+        layer_dims.append(47)
+
         mlp = MLP(layer_dims=layer_dims, init='he', use_batchnorm=True)
         weights = np.load('models/mlp_weights_tuned.npz')
         loaded_params, loaded_bn_params = {}, {}
@@ -24,6 +34,7 @@ def load_model():
         mlp.parameters, mlp.bn_params = (loaded_params, loaded_bn_params)
         print("Model loaded successfully!")
         return mlp
+    
     except Exception as e:
         print(f"Fail to load model: {str(e)}")
         return None

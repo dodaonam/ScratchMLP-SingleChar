@@ -5,10 +5,11 @@ import matplotlib.pyplot as plt
 from src.model import MLP
 from src.load_data import load_processed_data
 
-EPOCHS = 100
+EPOCHS = 10
 BATCH_SIZE = 128
-PATIENCE = 10
+PATIENCE = 3
 LEARNING_RATE_DECAY = 0.98
+OPTIMIZER = 'adam'
 
 def train_best_model(mlp, X_train, Y_train, X_val, Y_val, epochs, batch_size, patience, lr, decay_rate):
     m = X_train.shape[1]
@@ -137,8 +138,28 @@ if __name__ == "__main__":
         lambd=best_params['lambda'],
         keep_prob=best_params['keep_prob'],
         use_batchnorm=True,
-        optimizer='adam'
+        optimizer=OPTIMIZER
     )
+
+    try:
+        weights = np.load('models/mlp_weights_tuned.npz')
+        loaded_params = {}
+        loaded_bn_params = {}
+
+        for key in weights.keys():
+            if key.startswith('gamma') or key.startswith('beta') or key.startswith('running_'):
+                loaded_bn_params[key] = weights[key]
+            elif key.startswith('W') or key.startswith('b'):
+                loaded_params[key] = weights[key]
+        
+        final_mlp.parameters = loaded_params
+        if final_mlp.use_batchnorm:
+            final_mlp.bn_params = loaded_bn_params
+        print("Weights loaded successfully. Resuming training.")
+    except FileNotFoundError:
+        print("Warning: 'models/mlp_weights_tuned.npz' not found. Training from scratch.")
+    except Exception as e:
+        print(f"Error loading weights: {e}. Training from scratch.")
 
     history = train_best_model(
         final_mlp, X_train, Y_train, X_val, Y_val,
@@ -163,7 +184,7 @@ if __name__ == "__main__":
     to_save = dict(final_mlp.parameters)
     if final_mlp.use_batchnorm:
         to_save.update(final_mlp.bn_params)
-    np.savez('models/mlp_weights_tuned.npz', **to_save)
-    print(f"\nModel saved to models/mlp_weights_tuned.npz")
+    np.savez('models/mlp_final_weights.npz', **to_save)
+    print(f"\nModel saved to models/mlp_final_weights.npz")
 
     plot_training_history(history)
